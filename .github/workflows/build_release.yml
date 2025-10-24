@@ -1,42 +1,17 @@
-name: Build/release
+name: "Build"
 
 on:
-  workflow_dispatch:
-    inputs:
-      build_components:
-        description: Build components
-        required: true
-        default: All
-        type: choice
-        options:
-          - All
-          - driver
-          - capture-server
-          - leveladj
-          - clockgen_firmware
-
-      build_configuration:
-        description: Build configuration
-        required: true
-        default: Debug
-        type: choice
-        options:
-          - Debug
-          - Release
-
-      create_release:
-        description: Create GitHub release
-        required: true
-        default: false
-        type: boolean
+   workflow_dispatch:
    
 jobs:
-  build:
-    name: Build ${{ inputs.build_components }} (${{ inputs.build_configuration }})
+  build-driver:
+    strategy:
+      matrix:
+        configuration: [Release]
+        platform: [x64]
     runs-on: windows-2022
-    permissions:
-        contents: write
-
+    env:
+      solution_path: cxadc-win.sln
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,94 +19,30 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Setup msbuild
+        uses: microsoft/setup-msbuild@v2
+  
       - name: Build driver
-        uses: ./.github/actions/build_driver
-        if: ${{ inputs.build_components == 'All' || inputs.build_components == 'driver' }}
-        with:
-          solution: .\cxadc-win.sln
-          configuration: ${{ inputs.build_configuration }}
-          platform: x64
-
-      - name: Build capture-server
-        uses: ./.github/actions/build_capture_server
-        if: ${{ inputs.build_components == 'All' || inputs.build_components == 'capture-server' }}
-        with:
-          solution: .\cxadc-win.sln
-          configuration: ${{ inputs.build_configuration }}
-          platform: x64
-
-      - name: Build leveladj
-        uses: ./.github/actions/build_leveladj
-        if: ${{ inputs.build_components == 'All' || inputs.build_components == 'leveladj' }}
-        with:
-          solution: .\cxadc-win.sln
-          configuration: ${{ inputs.build_configuration }}
-          platform: x64
-
-      - name: Build clockgen firmware
-        uses: ./.github/actions/build_clockgen_firmware
-        if: ${{ inputs.build_components == 'All' || inputs.build_components == 'clockgen_firmware' }}
-        with:
-          configuration: ${{ inputs.build_configuration }}
-
-      - name: Download all artifacts (driver)
-        uses: actions/download-artifact@v4
-        if: ${{ inputs.create_release }}
-        with:
-          path: driver
-          pattern: driver
-          merge-multiple: true
-
-      - name: Download all artifacts (bin)
-        uses: actions/download-artifact@v4
-        if: ${{ inputs.create_release }}
-        with:
-          path: bin
-          pattern: bin-*
-          merge-multiple: true
-
-      - name: Download all artifacts (pdb)
-        uses: actions/download-artifact@v4
-        if: ${{ inputs.create_release }}
-        with:
-          path: pdb
-          pattern: pdb-*
-          merge-multiple: true
-
-      - name: Download all artifacts (clockgen firmware)
-        uses: actions/download-artifact@v4
-        if: ${{ inputs.create_release }}
-        with:
-          path: clockgen_firmware
-          pattern: clockgen_firmware
-          merge-multiple: true
-
-      - name: Create GitHub Release
-        if: ${{ inputs.create_release }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          ASSET_NAME: cxadc-win-x64.zip
-          ASSET_NAME_PDB: cxadc-win-x64-pdb.zip
-          ASSET_LABEL: cxadc-win-${{ github.ref_name }}-x64.zip
-          ASSET_LABEL_PDB: cxadc-win-${{ github.ref_name }}-x64-pdb.zip
-        shell: pwsh
         run: |
-          gh release create '${{ github.ref_name }}' --title '${{ github.ref_name }}' --draft
+          msbuild ${{ env.solution_path }} -target:cxadc-win -p:Configuration=${{ matrix.configuration }} -p:Platform=${{ matrix.platform }}
 
-          Compress-Archive -DestinationPath '${{ env.ASSET_NAME }}' -Path 'LICENSE.txt'
+      - name: Build tool
+        run: |
+          dotnet publish cxadc-win-tool -r win-${{ matrix.platform }}
 
-          if (Test-Path 'driver') {
-            Compress-Archive -Update -DestinationPath '${{ env.ASSET_NAME }}' -Path 'driver'
-          }
+      - name: Create release directory
+        run: |
+          New-Item -ItemType Directory -Path .\release
+          Copy-Item -Path .\x64\Release\cxadc-win\cxadc-win.cat -Destination .\release\
+          Copy-Item -Path .\x64\Release\cxadc-win\cxadc-win.sys -Destination .\release\
+          Copy-Item -Path .\x64\Release\cxadc-win\cxadc-win.inf -Destination .\release\
+          Copy-Item -Path .\x64\Release\cxadc-win.pdb -Destination .\release\
+          Copy-Item -Path .\cxadc-win-tool\bin\Release\net8.0-windows\win-x64\publish\cxadc-win-tool.exe -Destination .\release\
+          Copy-Item -Path .\cxadc-win-tool\bin\Release\net8.0-windows\win-x64\publish\cxadc-win-tool.pdb -Destination .\release\
 
-          if (Test-Path 'bin') {
-            Compress-Archive -Update -DestinationPath '${{ env.ASSET_NAME }}' -Path 'bin'
-          }
-
-          if (Test-Path 'clockgen_firmware') {
-            Compress-Archive -Update -DestinationPath '${{ env.ASSET_NAME }}' -Path 'clockgen_firmware'
-          }
-
-          if (Test-Path '${{ env.ASSET_NAME }}') {
-            gh release upload '${{ github.ref_name }}' '${{ env.ASSET_NAME }}#${{ env.ASSET_LABEL }}'
-          }
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxadc-win
+          path: release
+          if-no-files-found: error
