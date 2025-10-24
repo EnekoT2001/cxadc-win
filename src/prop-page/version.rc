@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * cxadc-win-prop-page - Property Page for the cxadc-win driver
+ *
+ * Copyright (C) 2024-2025 Jitterbug <jitterbug@posteo.co.uk>
+ */
+
+#ifdef APSTUDIO_INVOKED
+    #error this file is not editable by Visual C++
+#endif
+
+#pragma code_page(65001) // UTF-8
+
+#define CX_FILE_DESC        "cxadc-win property page"
+#define CX_INTERNAL_NAME    "cxadc-win-pp"
+#define CX_FILE_NAME        "cxadc-win-pp.dll"
+
+#include "version.rc2"
